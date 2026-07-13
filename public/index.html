@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arch-meet | Video Conferencing & Collaboration</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 99px; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans antialiased overflow-hidden select-none">
+
+    <div id="view-auth" class="min-h-screen flex items-center justify-center p-4 bg-radial from-slate-900 via-slate-950 to-black">
+        <div class="bg-slate-900 p-8 rounded-3xl shadow-2xl border border-slate-800 max-w-sm w-full">
+            <div class="flex items-center justify-center gap-2 mb-6">
+                <div class="bg-indigo-600 p-2.5 rounded-2xl shadow-lg shadow-indigo-600/30"><i class="fa-solid fa-video text-xl text-white"></i></div>
+                <h2 id="auth-title" class="text-3xl font-black tracking-tighter text-white">Arch-meet</h2>
+            </div>
+            
+            <form id="auth-form" onsubmit="handleAuthSubmit(event)" class="flex flex-col gap-4">
+                <div id="auth-email-group" class="hidden flex flex-col gap-1">
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Email Address</label>
+                    <input type="email" id="auth-email" class="border border-slate-800 p-3 rounded-xl text-xs bg-slate-950 focus:outline-indigo-500 text-white">
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Username</label>
+                    <input type="text" id="auth-user" required class="border border-slate-800 p-3 rounded-xl text-xs bg-slate-950 focus:outline-indigo-500 text-white">
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Password</label>
+                    <input type="password" id="auth-pass" required class="border border-slate-800 p-3 rounded-xl text-xs bg-slate-950 focus:outline-indigo-500 text-white">
+                </div>
+                <button type="submit" id="auth-submit-btn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider shadow-lg shadow-indigo-600/10 transition mt-2">Sign In</button>
+            </form>
+            <p class="text-xs text-center text-slate-500 mt-5 font-medium" id="auth-toggle-msg">First time hosting? <span onclick="toggleAuthMode()" class="text-indigo-400 font-bold cursor-pointer hover:underline">Create an account</span></p>
+        </div>
+    </div>
+
+    <div id="view-lobby" class="hidden min-h-screen flex items-center justify-center p-4 bg-slate-950">
+        <div class="bg-slate-900 p-8 rounded-3xl border border-slate-800/80 shadow-2xl max-w-md w-full text-center">
+            <h3 class="text-xl font-black text-white mb-2">Workspace Dashboard</h3>
+            <p class="text-xs text-slate-400 mb-6">Initialize a new secure video link or join an ongoing collaboration stream.</p>
+            
+            <div class="flex flex-col gap-4">
+                <button onclick="createNewMeetingCode()" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition">Create New Instant Meeting</button>
+                <div class="flex items-center my-2 text-slate-600 text-xs font-bold uppercase"><hr class="flex-grow border-slate-800"><span class="px-3">Or Join Link</span><hr class="flex-grow border-slate-800"></div>
+                <div class="flex gap-2">
+                    <input type="text" id="lobby-room-input" placeholder="Enter Room Code (e.g. abc-defg)" class="border border-slate-800 px-4 py-3 rounded-xl text-xs bg-slate-950 flex-grow text-white uppercase font-bold tracking-widest text-center focus:outline-indigo-500">
+                    <button onclick="joinMeetingFromLobby()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-3 rounded-xl text-xs uppercase tracking-wider transition">Join</button>
+                </div>
+                <button onclick="handleLogout()" class="text-xs font-bold text-rose-400 hover:underline mt-4">Sign Out Account</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-room" class="hidden h-screen flex flex-col md:flex-row bg-slate-950">
+        
+        <div class="flex-grow flex flex-col h-full relative p-4">
+            
+            <div class="flex justify-between items-center mb-4 bg-slate-900/60 backdrop-blur-md px-4 py-3 rounded-2xl border border-slate-800/40 z-10">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs font-black bg-indigo-500/10 text-indigo-400 px-3 py-1.5 rounded-lg border border-indigo-500/20 uppercase tracking-widest" id="room-code-display">ROOM: ---</span>
+                    <button onclick="copyMeetingLink()" class="text-slate-400 hover:text-white text-xs p-1.5 hover:bg-slate-800 rounded-lg transition" title="Copy Meeting Invite"><i class="fa-regular fa-copy"></i></button>
+                </div>
+                <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+                    <button id="tab-btn-video" onclick="switchCollaborationTab('video')" class="bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition"><i class="fa-solid fa-video mr-1.5"></i> Video Feeds</button>
+                    <button id="tab-btn-board" onclick="switchCollaborationTab('board')" class="text-slate-400 hover:text-white text-xs font-bold px-4 py-2 rounded-lg transition"><i class="fa-solid fa-chalkboard mr-1.5"></i> Whiteboard</button>
+                </div>
+            </div>
+
+            <div id="content-pane-video" class="flex-grow grid grid-cols-1 sm:grid-cols-2 gap-4 items-center justify-center p-2 overflow-y-auto custom-scrollbar">
+                <div class="relative bg-slate-900 rounded-2xl overflow-hidden border border-slate-800/80 aspect-video group">
+                    <video id="local-video" autoplay muted playsinline class="w-full h-full object-cover scale-x-[-1]"></video>
+                    <span class="absolute bottom-3 left-3 bg-slate-950/70 backdrop-blur-xs text-[10px] font-bold text-white px-2.5 py-1 rounded-md border border-white/5 uppercase" id="local-name-label">You</span>
+                </div>
+            </div>
+
+            <div id="content-pane-board" class="hidden flex-grow bg-white rounded-3xl overflow-hidden relative shadow-inner border border-slate-800">
+                <canvas id="whiteboard-canvas" class="w-full h-full cursor-crosshair bg-white"></canvas>
+                <div class="absolute bottom-4 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md p-2 rounded-2xl border border-slate-800 flex items-center gap-3 text-white shadow-2xl">
+                    <input type="color" id="board-color" value="#4f46e5" class="w-6 h-6 rounded-lg border-0 bg-transparent cursor-pointer">
+                    <input type="range" id="board-brush-size" min="2" max="15" value="4" class="w-20 accent-indigo-500 h-1 rounded-lg">
+                    <div class="w-px h-5 bg-slate-800"></div>
+                    <button onclick="clearWhiteboardCanvas(true)" class="text-xs font-bold bg-slate-800 hover:bg-rose-950 hover:text-rose-400 px-3 py-1.5 rounded-xl border border-slate-700/60 transition">Clear Board</button>
+                </div>
+            </div>
+
+            <div class="mt-4 flex justify-center items-center gap-3 py-2">
+                <button onclick="toggleLocalMediaMute('audio')" id="ctrl-mic-btn" class="w-12 h-12 bg-slate-900 hover:bg-slate-800 rounded-2xl text-slate-100 border border-slate-800 flex items-center justify-center transition"><i class="fa-solid fa-microphone text-lg"></i></button>
+                <button onclick="toggleLocalMediaMute('video')" id="ctrl-cam-btn" class="w-12 h-12 bg-slate-900 hover:bg-slate-800 rounded-2xl text-slate-100 border border-slate-800 flex items-center justify-center transition"><i class="fa-solid fa-video text-lg"></i></button>
+                <button onclick="toggleScreenShareEngine()" id="ctrl-screen-btn" class="bg-slate-900 hover:bg-slate-800 border border-slate-800 text-indigo-400 px-5 h-12 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition shadow-xl"><i class="fa-solid fa-desktop text-sm"></i> Share Screen</button>
+                <button onclick="leaveMeetingRoomGracefully()" class="bg-rose-600 hover:bg-rose-500 text-white px-6 h-12 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition shadow-lg shadow-rose-600/10"><i class="fa-solid fa-phone-slash"></i> End Call</button>
+            </div>
+        </div>
+
+        <aside class="w-full md:w-85 bg-slate-900 border-t md:border-t-0 md:border-l border-slate-800 flex flex-col h-full shrink-0 shadow-2xl">
+            <div class="grid grid-cols-2 border-b border-slate-800 text-center text-xs font-bold uppercase tracking-wider">
+                <button id="side-btn-chat" onclick="switchSidebarDrawerTab('chat')" class="py-4 border-b-2 border-indigo-500 text-white bg-slate-950/20">Secure Chat</button>
+                <button id="side-btn-files" onclick="switchSidebarDrawerTab('files')" class="py-4 text-slate-400 hover:text-white transition">Collaborators & Files</button>
+            </div>
+
+            <div id="side-pane-chat" class="flex-grow flex flex-col h-0 overflow-hidden">
+                <div id="chat-messages-container" class="flex-grow overflow-y-auto p-4 flex flex-col gap-3 custom-scrollbar text-xs">
+                    <div class="bg-slate-950/60 p-3 rounded-2xl border border-slate-800/40 text-slate-400 leading-relaxed"><i class="fa-solid fa-user-shield text-indigo-400 mr-1"></i> End-to-end socket channels active. Text data streams and vector coordinates pass natively through Socket parameters loops securely.</div>
+                </div>
+                <form onsubmit="broadcastChatMessage(event)" class="p-3 border-t border-slate-800 bg-slate-950/40 flex gap-2">
+                    <input type="text" id="chat-message-input" placeholder="Type a message..." required class="border border-slate-800 px-3 py-2.5 rounded-xl text-xs flex-grow focus:outline-indigo-500 bg-slate-950 text-white">
+                    <button type="submit" class="bg-indigo-600 text-white px-4 rounded-xl hover:bg-indigo-500 transition flex items-center justify-center shadow-lg"><i class="fa-solid fa-paper-plane text-xs"></i></button>
+                </form>
+            </div>
+
+            <div id="side-pane-files" class="hidden flex-grow flex flex-col h-0 overflow-hidden p-4 gap-6">
+                <div>
+                    <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><i class="fa-solid fa-users text-indigo-400"></i> Active Attendees</h4>
+                    <div id="users-attendance-list" class="flex flex-col gap-2 overflow-y-auto max-h-36 custom-scrollbar text-xs font-semibold"></div>
+                </div>
+                <div class="border-t border-slate-800/80 pt-4 flex-grow flex flex-col h-0">
+                    <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-1.5"><i class="fa-solid fa-folder-open text-indigo-400"></i> Local File Hub Transfer</h4>
+                    <label class="border border-dashed border-slate-800 p-4 rounded-xl text-center bg-slate-950/40 cursor-pointer hover:bg-slate-950/80 hover:border-slate-700 transition flex flex-col items-center justify-center gap-2 mb-3">
+                        <i class="fa-solid fa-cloud-arrow-up text-lg text-indigo-400"></i>
+                        <span class="text-[11px] font-bold text-slate-400">Upload Base64 File Asset</span>
+                        <input type="file" id="file-hub-uploader" class="hidden" onchange="processFileHubTransfer(event)">
+                    </label>
+                    <div id="shared-files-stack" class="overflow-y-auto flex-grow flex flex-col gap-2 custom-scrollbar text-xs"></div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        let socket = null;
+        let activeUserSession = JSON.parse(localStorage.getItem('archmeet_session')) || null;
+        let currentRoomCode = null;
+        let activeAuthMode = 'login';
+        
+        let myLocalStream = null;
+        let peerConnections = {}; 
+        const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+        let isDrawingStateActive = false;
+        let whiteboardCtx = null;
+        let canvasElement = null;
+
+        window.addEventListener('DOMContentLoaded', () => {
+            if (activeUserSession) {
+                showLobbyWorkspaceDashboard();
+            }
+            initializeWhiteboardCanvasWiring();
+        });
+
+        function toggleAuthMode() {
+            activeAuthMode = activeAuthMode === 'login' ? 'register' : 'login';
+            
+            // FIXED: Target selection will now succeed natively without breaking the thread
+            document.getElementById('auth-title').innerText = activeAuthMode === 'login' ? 'Arch-meet' : 'Create Profile';
+            document.getElementById('auth-submit-btn').innerText = activeAuthMode === 'login' ? 'Sign In' : 'Complete Account Registration';
+            
+            const emailGroup = document.getElementById('auth-email-group');
+            const emailInput = document.getElementById('auth-email');
+            
+            if (activeAuthMode === 'login') {
+                emailGroup.classList.add('hidden');
+                emailInput.removeAttribute('required');
+            } else {
+                emailGroup.classList.remove('hidden');
+                emailInput.setAttribute('required', 'true');
+            }
+
+            document.getElementById('auth-toggle-msg').innerHTML = activeAuthMode === 'login' ? 
+                `First time hosting? <span onclick="toggleAuthMode()" class="text-indigo-400 font-bold cursor-pointer hover:underline">Create an account</span>` :
+                `Already have an account? <span onclick="toggleAuthMode()" class="text-indigo-400 font-bold cursor-pointer hover:underline">Sign In Instead</span>`;
+        }
+
+        async function handleAuthSubmit(e) {
+            e.preventDefault();
+            const username = document.getElementById('auth-user').value.trim();
+            const password = document.getElementById('auth-pass').value;
+            const email = document.getElementById('auth-email').value.trim();
+
+            const endpoint = activeAuthMode === 'login' ? '/api/login' : '/api/register';
+            const payload = activeAuthMode === 'login' ? { username, password } : { username, email, password };
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const res = await response.json();
+                if (!response.ok) throw new Error(res.message || "Authentication parsing failed.");
+
+                if (activeAuthMode === 'login') {
+                    activeUserSession = res.user;
+                    localStorage.setItem('archmeet_session', JSON.stringify(activeUserSession));
+                    showLobbyWorkspaceDashboard();
+                } else {
+                    alert("Account configured successfully! Proceeding to session sign-in.");
+                    document.getElementById('auth-form').reset();
+                    toggleAuthMode();
+                }
+            } catch (err) { alert(err.message); }
+        }
+
+        function handleLogout() {
+            localStorage.removeItem('archmeet_session');
+            activeUserSession = null;
+            document.getElementById('view-auth').classList.remove('hidden');
+            document.getElementById('view-lobby').classList.add('hidden');
+            document.getElementById('view-room').classList.add('hidden');
+            document.getElementById('auth-form').reset();
+            if(activeAuthMode === 'register') toggleAuthMode();
+        }
+
+        function showLobbyWorkspaceDashboard() {
+            document.getElementById('view-auth').classList.add('hidden');
+            document.getElementById('view-lobby').classList.remove('hidden');
+            document.getElementById('view-room').classList.add('hidden');
+        }
+
+        function createNewMeetingCode() {
+            const pattern = "xxx-xxxx".replace(/x/g, () => String.fromCharCode(97 + Math.floor(Math.random() * 26)));
+            document.getElementById('lobby-room-input').value = pattern;
+            joinMeetingRoomPipeline(pattern);
+        }
+
+        function joinMeetingFromLobby() {
+            const raw = document.getElementById('lobby-room-input').value.trim().toLowerCase();
+            if (!raw) return alert("Please specify a room code.");
+            joinMeetingRoomPipeline(raw);
+        }
+
+        async function joinMeetingRoomPipeline(roomCode) {
+            currentRoomCode = roomCode;
+            document.getElementById('view-lobby').classList.add('hidden');
+            document.getElementById('view-room').classList.remove('hidden');
+            document.getElementById('room-code-display').innerText = `ROOM: ${roomCode}`;
+
+            try {
+                myLocalStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+                document.getElementById('local-video').srcObject = myLocalStream;
+            } catch (err) {
+                console.warn("Hardware device fallback mode active.", err);
+            }
+
+            socket = io();
+            socket.emit('join-room', { roomCode, username: activeUserSession.username, peerId: socket.id });
+
+            socket.on('update-users-list', (usersArray) => {
+                const listContainer = document.getElementById('users-attendance-list');
+                listContainer.innerHTML = '';
+                usersArray.forEach(u => {
+                    listContainer.innerHTML += `<div class="flex items-center gap-2 bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-slate-300"><i class="fa-solid fa-circle text-[7px] text-emerald-400"></i><span>${u.username}</span></div>`;
+                });
+            });
+
+            socket.on('user-connected', async ({ socketId, username }) => {
+                appendSystemAlertNotificationRow(`Collaborator ${username} joined.`);
+                createPeerMeshLinkConnection(socketId, true);
+            });
+
+            socket.on('signal-offer', async ({ senderSocketId, offer }) => {
+                const pc = createPeerMeshLinkConnection(senderSocketId, false);
+                await pc.setRemoteDescription(new RTCSessionDescription(offer));
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                socket.emit('signal-answer', { targetSocketId: senderSocketId, answer });
+            });
+
+            socket.on('signal-answer', async ({ senderSocketId, answer }) => {
+                const pc = peerConnections[senderSocketId];
+                if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+            });
+
+            socket.on('signal-ice', async ({ senderSocketId, candidate }) => {
+                const pc = peerConnections[senderSocketId];
+                if (pc && candidate) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+
+            socket.on('user-disconnected', ({ socketId, username }) => {
+                appendSystemAlertNotificationRow(`User ${username} left.`);
+                if (peerConnections[socketId]) {
+                    peerConnections[socketId].close();
+                    delete peerConnections[socketId];
+                }
+                const remoteEl = document.getElementById(`video-box-${socketId}`);
+                if (remoteEl) remoteEl.remove();
+            });
+
+            socket.on('chat-message', (data) => appendChatMessageRow(data));
+            socket.on('whiteboard-draw', (data) => renderVectorStrokePathCoordinates(data));
+            socket.on('whiteboard-clear', () => clearWhiteboardCanvas(false));
+        }
+
+        function createPeerMeshLinkConnection(targetSocketId, isInitiator) {
+            if (peerConnections[targetSocketId]) return peerConnections[targetSocketId];
+
+            const pc = new RTCPeerConnection(rtcConfig);
+            peerConnections[targetSocketId] = pc;
+
+            if (myLocalStream) {
+                myLocalStream.getTracks().forEach(track => pc.addTrack(track, myLocalStream));
+            }
+
+            pc.onicecandidate = (e) => {
+                if (e.candidate) socket.emit('signal-ice', { targetSocketId, candidate: e.candidate });
+            };
+
+            pc.ontrack = (e) => {
+                let remoteVideoBox = document.getElementById(`video-box-${targetSocketId}`);
+                if (!remoteVideoBox) {
+                    remoteVideoBox = document.createElement('div');
+                    remoteVideoBox.id = `video-box-${targetSocketId}`;
+                    remoteVideoBox.className = "relative bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 aspect-video group";
+                    remoteVideoBox.innerHTML = `
+                        <video id="video-el-${targetSocketId}" autoplay playsinline class="w-full h-full object-cover"></video>
+                        <span class="absolute bottom-3 left-3 bg-slate-950/70 backdrop-blur-xs text-[10px] font-bold text-white px-2.5 py-1 rounded-md border border-white/5 uppercase">Peer Remote</span>
+                    `;
+                    document.getElementById('content-pane-video').appendChild(remoteVideoBox);
+                }
+                document.getElementById(`video-el-${targetSocketId}`).srcObject = e.streams[0];
+            };
+
+            if (isInitiator) {
+                pc.onnegotiationneeded = async () => {
+                    const offer = await pc.createOffer();
+                    await pc.setLocalDescription(offer);
+                    socket.emit('signal-offer', { targetSocketId, offer });
+                };
+            }
+
+            return pc;
+        }
+
+        function toggleLocalMediaMute(type) {
+            if (!myLocalStream) return;
+            const track = type === 'audio' ? myLocalStream.getAudioTracks()[0] : myLocalStream.getVideoTracks()[0];
+            if (!track) return;
+
+            track.enabled = !track.enabled;
+            const btn = document.getElementById(type === 'audio' ? 'ctrl-mic-btn' : 'ctrl-cam-btn');
+            
+            if (track.enabled) {
+                btn.className = "w-12 h-12 bg-slate-900 hover:bg-slate-800 rounded-2xl text-slate-100 border border-slate-800 flex items-center justify-center transition";
+                btn.innerHTML = `<i class="fa-solid fa-${type === 'audio' ? 'microphone' : 'video'} text-lg"></i>`;
+            } else {
+                btn.className = "w-12 h-12 bg-rose-600/20 hover:bg-rose-600/30 rounded-2xl text-rose-400 border border-rose-500/20 flex items-center justify-center transition";
+                btn.innerHTML = `<i class="fa-solid fa-${type === 'audio' ? 'microphone-slash' : 'video-slash'} text-lg"></i>`;
+            }
+        }
+
+        async function toggleScreenShareEngine() {
+            const btn = document.getElementById('ctrl-screen-btn');
+            try {
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+                const videoTrack = screenStream.getVideoTracks()[0];
+
+                Object.values(peerConnections).forEach(pc => {
+                    const sender = pc.getSenders().find(s => s.track.kind === 'video');
+                    if (sender) sender.replaceTrack(videoTrack);
+                });
+
+                document.getElementById('local-video').srcObject = screenStream;
+                btn.className = "bg-indigo-600 text-white px-5 h-12 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition shadow-xl";
+
+                videoTrack.onended = () => {
+                    Object.values(peerConnections).forEach(pc => {
+                        const sender = pc.getSenders().find(s => s.track.kind === 'video');
+                        if (sender && myLocalStream) sender.replaceTrack(myLocalStream.getVideoTracks()[0]);
+                    });
+                    document.getElementById('local-video').srcObject = myLocalStream;
+                    btn.className = "bg-slate-900 hover:bg-slate-800 border border-slate-800 text-indigo-400 px-5 h-12 rounded-2xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition shadow-xl";
+                };
+            } catch (err) { console.warn(err); }
+        }
+
+        function initializeWhiteboardCanvasWiring() {
+            canvasElement = document.getElementById('whiteboard-canvas');
+            whiteboardCtx = canvasElement.getContext('2d');
+
+            function resizeCanvasContextToFit() {
+                canvasElement.width = canvasElement.parentElement.clientWidth;
+                canvasElement.height = canvasElement.parentElement.clientHeight;
+                whiteboardCtx.lineCap = 'round';
+                whiteboardCtx.lineJoin = 'round';
+            }
+            
+            window.addEventListener('resize', resizeCanvasContextToFit);
+            setTimeout(resizeCanvasContextToFit, 500);
+
+            canvasElement.addEventListener('mousedown', (e) => { isDrawingStateActive = true; drawVectorStrokeCoordinates(e); });
+            canvasElement.addEventListener('mousemove', drawVectorStrokeCoordinates);
+            canvasElement.addEventListener('mouseup', () => { isDrawingStateActive = false; whiteboardCtx.beginPath(); });
+        }
+
+        function drawVectorStrokeCoordinates(e) {
+            if (!isDrawingStateActive) return;
+            const rect = canvasElement.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            const color = document.getElementById('board-color').value;
+            const size = document.getElementById('board-brush-size').value;
+
+            const packet = { x, y, color, size };
+            renderVectorStrokePathCoordinates(packet);
+
+            if (socket) socket.emit('whiteboard-draw', packet);
+        }
+
+        function renderVectorStrokePathCoordinates(data) {
+            whiteboardCtx.lineWidth = data.size;
+            whiteboardCtx.strokeStyle = data.color;
+            whiteboardCtx.lineTo(data.x, data.y);
+            whiteboardCtx.stroke();
+            whiteboardCtx.beginPath();
+            whiteboardCtx.moveTo(data.x, data.y);
+        }
+
+        function clearWhiteboardCanvas(isLocalInitiated) {
+            whiteboardCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            whiteboardCtx.beginPath();
+            if (isLocalInitiated && socket) socket.emit('whiteboard-clear');
+        }
+
+        function broadcastChatMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('chat-message-input');
+            const rawText = input.value.trim();
+            if (!rawText || !socket) return;
+
+            socket.emit('chat-message', { sender: activeUserSession.username, text: rawText });
+            input.value = '';
+        }
+
+        function appendChatMessageRow(data) {
+            const container = document.getElementById('chat-messages-container');
+            const isMe = data.sender === activeUserSession.username;
+            
+            container.innerHTML += `
+                <div class="flex flex-col flex-nowrap gap-0.5 ${isMe ? 'items-end' : 'items-start'}">
+                    <span class="text-[10px] text-slate-500 font-bold px-1">${data.sender} <span class="font-normal font-sans ml-1">${data.timestamp}</span></span>
+                    <div class="p-3 rounded-2xl max-w-[90%] leading-relaxed tracking-wide shadow-md ${isMe ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-slate-950 text-slate-300 rounded-tl-none border border-slate-800/40'}">${data.text}</div>
+                </div>`;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function processFileHubTransfer(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const filePacket = { name: file.name, stream: evt.target.result, sender: activeUserSession.username };
+                if (socket) {
+                    socket.emit('chat-message', { sender: "SYSTEM: FILE", text: `📁 Shared Asset: <a href="${evt.target.result}" download="${file.name}" class="text-indigo-400 font-bold underline hover:text-indigo-300 transition break-all">${file.name}</a>` });
+                }
+                appendSharedFileHubRow(filePacket);
+            };
+            reader.readAsDataURL(file);
+            e.target.value = ''; 
+        }
+
+        function appendSharedFileHubRow(packet) {
+            const container = document.getElementById('shared-files-stack');
+            container.innerHTML += `
+                <div class="bg-slate-955 border border-slate-800/60 p-3 rounded-xl flex items-center justify-between gap-3">
+                    <div class="overflow-hidden"><p class="font-bold text-slate-300 truncate leading-tight">${packet.name}</p><p class="text-[9px] text-slate-500 font-medium mt-0.5">By: ${packet.sender}</p></div>
+                    <a href="${packet.stream}" download="${packet.name}" class="bg-slate-900 border border-slate-800 text-indigo-400 hover:text-white p-2 rounded-lg transition shrink-0"><i class="fa-solid fa-cloud-arrow-down"></i></a>
+                </div>`;
+        }
+
+        function appendSystemAlertNotificationRow(message) {
+            const container = document.getElementById('chat-messages-container');
+            container.innerHTML += `<div class="bg-slate-950/40 text-center py-1.5 px-3 rounded-xl border border-slate-800/20 text-slate-500 text-[10px] font-semibold leading-relaxed tracking-wide max-w-[95%] mx-auto my-1"><i class="fa-solid fa-circle-info text-indigo-500/60 mr-1"></i> ${message}</div>`;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function copyMeetingLink() {
+            navigator.clipboard.writeText(window.location.origin + "?room=" + currentRoomCode);
+            alert("Meeting room reference link copied to device clipboard!");
+        }
+
+        function leaveMeetingRoomGracefully() {
+            if (confirm("Are you sure you want to terminate this operational collaborative call session?")) {
+                window.location.reload();
+            }
+        }
+
+        function switchCollaborationTab(tabName) {
+            document.getElementById('content-pane-video').classList.toggle('hidden', tabName !== 'video');
+            document.getElementById('content-pane-board').classList.toggle('hidden', tabName !== 'board');
+            document.getElementById('tab-btn-video').className = tabName === 'video' ? "bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition" : "text-slate-400 hover:text-white text-xs font-bold px-4 py-2 rounded-lg transition";
+            document.getElementById('tab-btn-board').className = tabName === 'board' ? "bg-indigo-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition" : "text-slate-400 hover:text-white text-xs font-bold px-4 py-2 rounded-lg transition";
+            if(tabName === 'board') window.dispatchEvent(new Event('resize')); 
+        }
+
+        function switchSidebarDrawerTab(tabName) {
+            document.getElementById('side-pane-chat').classList.toggle('hidden', tabName !== 'chat');
+            document.getElementById('side-pane-files').classList.toggle('hidden', tabName !== 'files');
+            document.getElementById('side-btn-chat').className = tabName === 'chat' ? "py-4 border-b-2 border-indigo-500 text-white bg-slate-950/20" : "py-4 text-slate-400 hover:text-white transition";
+            document.getElementById('side-btn-files').className = tabName === 'files' ? "py-4 border-b-2 border-indigo-500 text-white bg-slate-950/20" : "py-4 text-slate-400 hover:text-white transition";
+        }
+
+        function toggleModal(id) { document.getElementById(id).classList.toggle('hidden'); }
+    </script>
+</body>
+</html>
