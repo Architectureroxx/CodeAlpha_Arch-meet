@@ -1,25 +1,31 @@
 const express = require('express');
 const path = require('path');
-const http = require('http');
-const { Server } = require('socket.io');
-
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-    maxHttpBufferSize: 1e7 // Increase buffer size to 10MB to handle in-memory file transfers smoothly
-});
 
-app.use(express.json());
-// Replace app.use(express.static(...)) with this:
+// Increase parsing limits to handle custom base64 uploaded images seamlessly
+app.use(express.json({ limit: '10mb' }));
+
+// FIXED: Serve static assets correctly from the root-level public folder relative to /api
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Persistent Localized Memory Database Storage
+// Persistent Mock Databases (In-Memory per cold start)
 let users = [
-    { username: "archit", email: "archit@gmail.com", password: "password123" }
+    { username: "archit_codes", email: "archit@gmail.com", password: "password123", name: "Archit", bio: "Building dynamic software ecosystems 🚀", avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150", followers: ["nature_pixel"], following: ["design_studio"] },
+    { username: "nature_pixel", email: "elena@gmail.com", password: "password123", name: "Elena Rostova", bio: "Landscape photographer 🌲📷", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150", followers: ["archit_codes"], following: ["archit_codes"] },
+    { username: "design_studio", email: "studio@gmail.com", password: "password123", name: "Studio Core", bio: "Minimalist spaces & clean interfaces.", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150", followers: ["archit_codes"], following: [] }
 ];
-let activeMeetings = {}; // Structure: { meetingId: [ { socketId, username, peerId } ] }
 
-// --- AUTHENTICATION API MATRIX ---
+let posts = [
+    { id: "post_1", username: "nature_pixel", img: "https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?w=800", caption: "Wandering through deep emerald paths. 🌲🍂", likes: ["archit_codes"], comments: [{ username: "archit_codes", text: "Stunning lighting control here!" }], timestamp: "2 hours ago" },
+    { id: "post_2", username: "archit_codes", img: "https://images.unsplash.com/photo-1517694712202-14dd9538aa97?w=800", caption: "Engineering foundation nodes. 💻🔥", likes: ["nature_pixel"], comments: [], timestamp: "5 hours ago" }
+];
+
+let stories = [
+    { username: "nature_pixel", avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150", content: "https://images.unsplash.com/photo-1501854140801-50d01698950b?w=800" },
+    { username: "design_studio", avatar: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150", content: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=800" }
+];
+
+// --- AUTHENTICATION API ENDPOINTS ---
 
 app.post('/api/register', (req, res) => {
     const { username, email, password } = req.body;
@@ -27,10 +33,19 @@ app.post('/api/register', (req, res) => {
     
     const formattedUser = username.toLowerCase().trim();
     if (users.find(u => u.username === formattedUser || u.email === email)) {
-        return res.status(400).json({ success: false, message: "Username or Email already exists." });
+        return res.status(400).json({ success: false, message: "Username or Email already taken." });
     }
 
-    users.push({ username: formattedUser, email, password });
+    users.push({
+        username: formattedUser,
+        email,
+        password,
+        name: username,
+        bio: "Hello, I am new to Archgram!",
+        avatar: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150",
+        followers: [],
+        following: []
+    });
     return res.status(201).json({ success: true });
 });
 
@@ -39,76 +54,79 @@ app.post('/api/login', (req, res) => {
     const formattedUser = username.toLowerCase().trim();
     const user = users.find(u => u.username === formattedUser && u.password === password);
 
-    if (!user) return res.status(400).json({ success: false, message: "Invalid credentials." });
+    if (!user) return res.status(400).json({ success: false, message: "Invalid login credentials." });
     return res.json({ success: true, user: { username: user.username, email: user.email } });
 });
 
-// --- REAL-TIME COMMUNICATION ENGINE (SOCKET.IO) ---
+// --- SOCIAL FEED CORE API ENDPOINTS ---
 
-io.on('connection', (socket) => {
-    let currentRoom = null;
-    let myUsername = null;
-
-    // Join Meeting Room Context Pipeline
-    socket.on('join-room', ({ roomCode, username, peerId }) => {
-        currentRoom = roomCode;
-        myUsername = username;
-        socket.join(roomCode);
-
-        if (!activeMeetings[roomCode]) activeMeetings[roomCode] = [];
-        
-        // Push participant identity signature parameters to meeting matrix
-        activeMeetings[roomCode].push({ socketId: socket.id, username, peerId });
-        
-        // Notify other peers inside room to establish fresh streaming mesh links
-        socket.to(roomCode).emit('user-connected', { socketId: socket.id, username, peerId });
-        io.to(roomCode).emit('update-users-list', activeMeetings[roomCode]);
-    });
-
-    // WebRTC Signaling Forwarding Matrices
-    socket.on('signal-offer', ({ targetSocketId, offer }) => {
-        socket.to(targetSocketId).emit('signal-offer', { senderSocketId: socket.id, offer });
-    });
-
-    socket.on('signal-answer', ({ targetSocketId, answer }) => {
-        socket.to(targetSocketId).emit('signal-answer', { senderSocketId: socket.id, answer });
-    });
-
-    socket.on('signal-ice', ({ targetSocketId, candidate }) => {
-        socket.to(targetSocketId).emit('signal-ice', { senderSocketId: socket.id, candidate });
-    });
-
-    // Synchronized Collaborative Whiteboard Actions
-    socket.on('whiteboard-draw', (drawData) => {
-        if (currentRoom) socket.to(currentRoom).emit('whiteboard-draw', drawData);
-    });
-
-    socket.on('whiteboard-clear', () => {
-        if (currentRoom) socket.to(currentRoom).emit('whiteboard-clear');
-    });
-
-    // Real-Time Encrypted Chat Text Actions
-    socket.on('chat-message', (msgData) => {
-        if (currentRoom) io.to(currentRoom).emit('chat-message', { ...msgData, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
-    });
-
-    // Disconnect Cleanup Wrapper State Machine
-    socket.on('disconnect', () => {
-        if (currentRoom && activeMeetings[currentRoom]) {
-            activeMeetings[currentRoom] = activeMeetings[currentRoom].filter(u => u.socketId !== socket.id);
-            socket.to(currentRoom).emit('user-disconnected', { socketId: socket.id, username: myUsername });
-            io.to(currentRoom).emit('update-users-list', activeMeetings[currentRoom]);
-
-            if (activeMeetings[currentRoom].length === 0) delete activeMeetings[currentRoom];
-        }
-    });
+app.post('/api/user-context', (req, res) => {
+    const user = users.find(u => u.username === req.body.username);
+    if (!user) return res.status(404).json({ error: "Session expired." });
+    res.json(user);
 });
 
-// Replace your fallback middleware with this:
+app.get('/api/posts', (req, res) => res.json(posts));
+app.get('/api/stories', (req, res) => res.json(stories));
+
+app.post('/api/posts', (req, res) => {
+    const { img, caption, username } = req.body;
+    if(!img || !caption || !username) return res.status(400).json({ error: "Missing required properties." });
+    
+    const newPost = { id: "post_" + Date.now(), username, img, caption, likes: [], comments: [], timestamp: "Just now" };
+    posts.unshift(newPost);
+    res.status(201).json(newPost);
+});
+
+app.post('/api/posts/:id/like', (req, res) => {
+    const post = posts.find(p => p.id === req.params.id);
+    const { username } = req.body;
+    if(!post) return res.status(404).json({ error: "Post missing." });
+    
+    const index = post.likes.indexOf(username);
+    if(index === -1) post.likes.push(username);
+    else post.likes.splice(index, 1);
+    res.json({ likes: post.likes });
+});
+
+app.post('/api/posts/:id/comment', (req, res) => {
+    const post = posts.find(p => p.id === req.params.id);
+    const { username, text } = req.body;
+    if(!post || !text) return res.status(400).json({ error: "Bad parameters request." });
+    
+    const c = { username, text };
+    post.comments.push(c);
+    res.status(201).json(c);
+});
+
+app.get('/api/users/:username', (req, res) => {
+    const u = users.find(x => x.username === req.params.username);
+    if(!u) return res.status(404).json({ error: "Not found." });
+    res.json({ user: u, posts: posts.filter(p => p.username === req.params.username) });
+});
+
+app.post('/api/users/:username/follow', (req, res) => {
+    const target = users.find(u => u.username === req.params.username);
+    const me = users.find(u => u.username === req.body.myUsername);
+    const index = me.following.indexOf(target.username);
+    if(index === -1) { me.following.push(target.username); target.followers.push(me.username); }
+    else { me.following.splice(index, 1); target.followers.splice(target.followers.indexOf(me.username), 1); }
+    res.json({ followers: target.followers, following: me.following });
+});
+
+app.post('/api/profile/update', (req, res) => {
+    const me = users.find(u => u.username === req.body.myUsername);
+    const { name, bio, avatar } = req.body;
+    if(name) me.name = name;
+    if(bio) me.bio = bio;
+    if(avatar) me.avatar = avatar;
+    res.json({ success: true, user: me });
+});
+
+// FIXED: Adjust path to look up one level into the public directory for serverless deployment
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
-const PORT = process.env.PORT || 3000;
-// server.listen(PORT, () => console.log(`Arch-meet framework running at http://localhost:${PORT}`));
-// Add this at the absolute bottom
+
+// FIXED: Export the express application instead of using app.listen() for Vercel functions
 module.exports = app;
